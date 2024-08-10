@@ -6,7 +6,6 @@ import android.content.res.Resources
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,12 +22,12 @@ import kotlinx.coroutines.delay
 
 class CharacterWindow(context: Context) {
 
-    private var view: View
-    private var windowManager: WindowManager
+    private val view: View
+    private val windowManager: WindowManager
     private var characterDirection: Direction = Direction.Right
     private var isDragged = true
     private val img = mutableIntStateOf(R.drawable.img_mumei_right)
-    private var layoutParams: WindowManager.LayoutParams = WindowManager.LayoutParams(
+    private val layoutParams: WindowManager.LayoutParams = WindowManager.LayoutParams(
         CHARACTER_SIZE_PX,
         CHARACTER_SIZE_PX,
         0,
@@ -62,8 +61,8 @@ class CharacterWindow(context: Context) {
                     windowManager.addView(view, layoutParams)
                 }
             }
-        } catch (e: Exception) {
-            Log.e("CharacterWindow", "error create window${e.message}")
+        } catch (_: Exception) {
+
         }
     }
 
@@ -76,23 +75,19 @@ class CharacterWindow(context: Context) {
                 val parent = view.parent as ViewGroup
                 parent.removeAllViews()
             }
-        } catch (e: Exception) {
-            Log.e("CharacterWindow", "error remove window${e.message}")
+        } catch (_: Exception) {
+
         }
     }
 
     suspend fun updatePosition() {
-        val (screenWidth, screenHeight) = screenWidthAndHeight()
+        val (screenWidth, screenHeight) = calculateScreenSize()
         while (true) {
-            Log.d(
-                "CharacterWindow",
-                "window: width: $screenWidth, x:${layoutParams.x}, y: ${layoutParams.y}, $isDragged"
-            )
             if (isDragged) {
                 createDirection(screenHeight, screenWidth)
                 windowManager.updateViewLayout(view, layoutParams)
             }
-            delay(10)
+            delay(50)
         }
     }
 
@@ -112,8 +107,8 @@ class CharacterWindow(context: Context) {
         layoutParams.y = y
         try {
             windowManager.updateViewLayout(view, layoutParams)
-        } catch (e: Exception) {
-            Log.e("CharacterWindow", "Error update window ${e.message}")
+        } catch (_: Exception) {
+
         }
     }
 
@@ -122,17 +117,17 @@ class CharacterWindow(context: Context) {
             Direction.UP -> if (layoutParams.y == screenHeight) {
                 characterDirection = Direction.DOWN
             } else {
-                layoutParams.y += 1
+                randomizeJumpEvent()
             }
 
-            Direction.DOWN -> if (layoutParams.y == 0) {
+            Direction.DOWN -> if (layoutParams.y <= 0) {
                 characterDirection = if (layoutParams.x == screenWidth) {
                     Direction.Left
                 } else {
                     Direction.Right
                 }
             } else {
-                layoutParams.y -= 1
+                layoutParams.y -= FALL_SPEED
             }
 
             Direction.Left -> {
@@ -140,7 +135,7 @@ class CharacterWindow(context: Context) {
                 if (layoutParams.x <= -screenWidth) {
                     randomMovementOnTheEdgeOfWidth { characterDirection = Direction.Right }
                 } else {
-                    layoutParams.x -= 1
+                    layoutParams.x -= X_SPEED
                 }
             }
 
@@ -149,19 +144,59 @@ class CharacterWindow(context: Context) {
                 if (layoutParams.x >= screenWidth) {
                     randomMovementOnTheEdgeOfWidth { characterDirection = Direction.Left }
                 } else {
-                    layoutParams.x += 1
+                    layoutParams.x += X_SPEED
                 }
+            }
+
+            Direction.JUMP_RIGHT -> {
+                img.intValue = R.drawable.img_mumei_right
+                if (layoutParams.y >= screenHeight) {
+                    characterDirection = Direction.DOWN
+                }else if (layoutParams.x <= screenWidth) {
+                    layoutParams.x += X_JUMP_SPEED
+                    layoutParams.y += Y_SPEED
+                }else{
+                    layoutParams.y += Y_SPEED
+                    randomizeJumpEvent()
+                }
+            }
+
+            Direction.JUMP_LEFT -> {
+                img.intValue = R.drawable.img_mumei_left
+                if (layoutParams.y >= screenHeight) {
+                    characterDirection = Direction.DOWN
+                } else if (layoutParams.x >= -screenWidth) {
+                    layoutParams.x -= X_JUMP_SPEED
+                    layoutParams.y += Y_SPEED
+                }else {
+                    layoutParams.y += Y_SPEED
+                    randomizeJumpEvent()
+                }
+
             }
         }
     }
 
-    private fun screenWidthAndHeight(): Pair<Int, Int> {
-        val displayMetrics = DisplayMetrics()
+    private fun randomizeJumpEvent() {
+        val random = (1..15).random()
+        characterDirection =
+            if (random % 2 == 0 && img.intValue == R.drawable.img_mumei_left) Direction.JUMP_RIGHT
+            else if (random % 3 == 0 && img.intValue == R.drawable.img_mumei_right) Direction.JUMP_LEFT
+            else Direction.UP
+    }
+
+    private fun calculateScreenSize(): Pair<Int, Int> {
+        val displayMetrics = getDisplayMetrics()
         val layoutThreshold = CHARACTER_SIZE_PX
-        val screenWidth = displayMetrics.widthPixels / 2 - layoutThreshold / 2
-        val screedHeight =
-            displayMetrics.heightPixels - (displayMetrics.heightPixels / 100 * 5) - layoutThreshold
+        val screenWidth = displayMetrics.widthPixels / 2 - layoutThreshold / 2 - 16
+        val screedHeight = displayMetrics.heightPixels - layoutThreshold
         return screenWidth to screedHeight
+    }
+
+    private fun getDisplayMetrics(): DisplayMetrics {
+        val displayMetrics = DisplayMetrics()
+        windowManager.defaultDisplay.getMetrics(displayMetrics)
+        return displayMetrics
     }
 
     private fun randomMovementOnTheEdgeOfWidth(changeDirection: () -> Unit) {
@@ -169,6 +204,7 @@ class CharacterWindow(context: Context) {
         if (random % 2 == 0) characterDirection = Direction.UP
         else changeDirection.invoke()
     }
+
 
     private fun randomMovementAfterFallingDown() {
         val random = (1..10).random()
@@ -180,11 +216,18 @@ class CharacterWindow(context: Context) {
         UP,
         DOWN,
         Left,
-        Right
+        Right,
+        JUMP_RIGHT,
+        JUMP_LEFT
     }
 
     companion object {
         const val CHARACTER_SIZE_DP = 60
         val CHARACTER_SIZE_PX = (CHARACTER_SIZE_DP * Resources.getSystem().displayMetrics.density).toInt()
+        private const val X_SPEED = 5
+        private const val Y_SPEED = 5
+        private const val X_JUMP_SPEED = 10
+        private const val Y_JUMP_SPEED = 10
+        private const val FALL_SPEED = 20
     }
 }
